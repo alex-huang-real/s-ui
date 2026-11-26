@@ -19,16 +19,7 @@ type SubService struct {
 	LinkService
 }
 
-func (s *SubService) GetSubs(subId string) (*string, []string, error) {
-	return s.getSubs(subId, nil)
-}
-
-func (s *SubService) getSubs(subId string, transform func([]string) []string) (*string, []string, error) {
-	client, err := s.getClientBySubId(subId)
-	if err != nil {
-		return nil, nil, err
-	}
-
+func (s *SubService) getSubs(client *model.Client, transform func([]string) []string) (*string, []string, error) {
 	clientInfo := ""
 	subShowInfo, _ := s.SettingService.GetSubShowInfo()
 	if subShowInfo {
@@ -74,16 +65,6 @@ func dropDisabledLinks(raw json.RawMessage) (json.RawMessage, error) {
 		}
 	}
 	return json.Marshal(kept)
-}
-
-func (j *SubService) getClientBySubId(subId string) (*model.Client, error) {
-	db := database.GetDB()
-	client := &model.Client{}
-	err := db.Model(model.Client{}).Where("enable = true and name = ?", subId).First(client).Error
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
 }
 
 func (s *SubService) getClientHeaders(client *model.Client) []string {

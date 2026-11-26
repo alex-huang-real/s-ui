@@ -289,7 +289,7 @@ func migrateClients(db *gorm.DB) error {
 		}
 		oldClients[index].Inbounds, _ = json.Marshal(inbound_ids)
 	}
-	return db.Save(oldClients).Error
+	return db.Omit("SubToken").Save(oldClients).Error
 }
 
 func migrateChanges(db *gorm.DB) error {

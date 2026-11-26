@@ -50,6 +50,8 @@ func (a *APIHandler) postHandler(c *gin.Context) {
 		a.ApiService.SetMaintenance(c)
 	case "resetTraffic":
 		a.ApiService.ResetTraffic(c)
+	case "resetSubToken":
+		a.ApiService.ResetSubToken(c, loginUser)
 	case "linkConvert":
 		a.ApiService.LinkConvert(c)
 	case "subConvert":
@@ -81,6 +83,8 @@ func (a *APIHandler) getHandler(c *gin.Context) {
 		a.ApiService.Logout(c)
 	case "load":
 		a.ApiService.LoadData(c)
+	case "clientSubscription":
+		a.ApiService.GetClientSubscription(c)
 	case "inbounds", "outbounds", "endpoints", "services", "tls", "clients", "config":
 		err := a.ApiService.LoadPartialData(c, []string{action})
 		if err != nil {

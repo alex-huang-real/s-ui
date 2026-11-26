@@ -152,7 +152,7 @@ func anytls_user_config(db *gorm.DB) error {
 			return err
 		}
 		clients[index].Config = configJson
-		if err := db.Save(&clients[index]).Error; err != nil {
+		if err := db.Omit("SubToken").Save(&clients[index]).Error; err != nil {
 			return err
 		}
 	}

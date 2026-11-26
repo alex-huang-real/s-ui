@@ -34,6 +34,7 @@ func TestHappSubscriptionWithProxyLinks(t *testing.T) {
 	provider := externalSubTestServer(t, base64.StdEncoding.EncodeToString([]byte(providerBody)))
 	client := model.Client{
 		Name:     "happ-test",
+		SubToken: "happ-test-token",
 		Enable:   true,
 		Config:   json.RawMessage(`{}`),
 		Inbounds: json.RawMessage(`[]`),
@@ -61,7 +62,7 @@ func TestHappSubscriptionWithProxyLinks(t *testing.T) {
 		{"generic", "HappyClient/1.0", "", raw},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/sub/"+client.Name+test.query, nil)
+			req := httptest.NewRequest(http.MethodGet, "/sub/"+client.Name+"?token="+client.SubToken+strings.Replace(test.query, "?", "&", 1), nil)
 			req.Header.Set("User-Agent", test.agent)
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, req)

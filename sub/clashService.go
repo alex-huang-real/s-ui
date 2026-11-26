@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/alireza0/s-ui/database/model"
 	"github.com/alireza0/s-ui/logger"
 	"github.com/alireza0/s-ui/service"
 	"github.com/alireza0/s-ui/util"
@@ -71,9 +72,8 @@ func asBool(v interface{}) bool {
 	return b
 }
 
-func (s *ClashService) GetClash(subId string) (*string, []string, error) {
-
-	client, inDatas, err := s.getData(subId)
+func (s *ClashService) getClash(client *model.Client) (*string, []string, error) {
+	inDatas, err := s.getInbounds(client)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -465,6 +465,12 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 		return nil, err
 	}
 
+	if obj == "clients" {
+		data, err = stripSubscriptionToken(act, data)
+		if err != nil {
+			return nil, err
+		}
+	}
 	dt := time.Now().Unix()
 	err = tx.Create(&model.Changes{
 		DateTime: dt,

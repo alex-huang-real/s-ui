@@ -1,9 +1,14 @@
 package sub
 
 import (
+	"crypto/subtle"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 
+	"github.com/alireza0/s-ui/database"
+	"github.com/alireza0/s-ui/database/model"
 	"github.com/alireza0/s-ui/logger"
 	"github.com/alireza0/s-ui/service"
 
@@ -23,15 +28,57 @@ func NewSubHandler(g *gin.RouterGroup) {
 }
 
 func (s *SubHandler) initRouter(g *gin.RouterGroup) {
-	g.GET("/:subid", s.subs)
-	g.HEAD("/:subid", s.subHeaders)
+	g.GET("/:subid", s.serveSubscription)
+	g.HEAD("/:subid", s.serveSubscription)
 }
 
-func (s *SubHandler) subs(c *gin.Context) {
+func (s *SubHandler) serveSubscription(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	client := authenticatedClient(c)
+	if client == nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	if c.Request.Method == http.MethodHead {
+		s.addHeaders(c, s.SubService.getClientHeaders(client))
+		c.Status(http.StatusOK)
+		return
+	}
+	s.subs(c, client)
+}
+
+func authenticatedClient(c *gin.Context) *model.Client {
+	query, err := url.ParseQuery(c.Request.URL.RawQuery)
+	if err != nil || len(query["token"]) != 1 || query["token"][0] == "" {
+		return nil
+	}
+	token := query["token"][0]
+	// Decode only the last segment, after routing. Unlike query decoding,
+	// path decoding leaves '+' alone and lets an encoded slash be in a name.
+	escapedPath := c.Request.URL.EscapedPath()
+	name, err := url.PathUnescape(escapedPath[strings.LastIndexByte(escapedPath, '/')+1:])
+	if err != nil {
+		return nil
+	}
+	var clients []model.Client
+	if err := database.GetDB().Where("enable = true AND name = ?", name).Find(&clients).Error; err != nil {
+		logger.Error("subscription client lookup failed: ", err)
+		return nil
+	}
+	// Older databases can contain duplicate names. Render the actual matching
+	// row rather than resolving the name again after it has been authenticated.
+	for i := range clients {
+		if subtle.ConstantTimeCompare([]byte(clients[i].SubToken), []byte(token)) == 1 {
+			return &clients[i]
+		}
+	}
+	return nil
+}
+
+func (s *SubHandler) subs(c *gin.Context, client *model.Client) {
 	var headers []string
 	var result *string
 	var err error
-	subId := c.Param("subid")
 	format, isFormat := c.GetQuery("format")
 	if !isFormat {
 		c.Writer.Header().Add("Vary", "User-Agent")
@@ -39,13 +86,13 @@ func (s *SubHandler) subs(c *gin.Context) {
 	}
 	switch {
 	case format == "json":
-		result, headers, err = s.JsonService.GetJson(subId, format)
+		result, headers, err = s.JsonService.getJSON(client)
 	case format == "clash":
-		result, headers, err = s.ClashService.GetClash(subId)
+		result, headers, err = s.ClashService.getClash(client)
 	case format == "happ":
-		result, headers, err = s.SubService.getSubs(subId, happLinks)
+		result, headers, err = s.SubService.getSubs(client, happLinks)
 	case !isFormat:
-		result, headers, err = s.SubService.GetSubs(subId)
+		result, headers, err = s.SubService.getSubs(client, nil)
 	}
 	if err != nil || result == nil {
 		logger.Error(err)
@@ -56,21 +103,6 @@ func (s *SubHandler) subs(c *gin.Context) {
 	s.addHeaders(c, headers)
 
 	c.String(200, *result)
-}
-
-func (s *SubHandler) subHeaders(c *gin.Context) {
-	subId := c.Param("subid")
-	client, err := s.SubService.getClientBySubId(subId)
-	if err != nil {
-		logger.Error(err)
-		c.String(400, "Error!")
-		return
-	}
-
-	headers := s.SubService.getClientHeaders(client)
-	s.addHeaders(c, headers)
-
-	c.Status(200)
 }
 
 func (s *SubHandler) addHeaders(c *gin.Context, headers []string) {

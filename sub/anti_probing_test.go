@@ -57,8 +57,10 @@ func antiProbingSeedClients(t *testing.T) {
 	t.Helper()
 	db := database.GetDB()
 	clients := []model.Client{
-		{Name: "regression-real", Enable: true},
-		{Name: "regression-off", Enable: false},
+		{Name: "regression-real", Enable: true, SubToken: "real-test-token"},
+		{Name: "regression-off", Enable: false, SubToken: "disabled-test-token"},
+		{Name: "regression-other", Enable: true, SubToken: "other-test-token"},
+		{Name: "用户 +/%", Enable: true, SubToken: "encoded-name-test-token"},
 	}
 	for i := range clients {
 		clients[i].Config = json.RawMessage(`{}`)
@@ -97,8 +99,8 @@ func TestAntiProbingNoServerHeader(t *testing.T) {
 	defer subSrv.Close()
 
 	urls := []string{
-		subSrv.URL + subPath + "regression-real", // subscription, 200
-		subSrv.URL + subPath + "no-such-client",  // subscription, 400
+		subSrv.URL + subPath + "regression-real?token=real-test-token",
+		subSrv.URL + subPath + "no-such-client",
 	}
 	for _, url := range urls {
 		_, header, _ := antiProbingGet(t, url)
@@ -108,54 +110,63 @@ func TestAntiProbingNoServerHeader(t *testing.T) {
 	}
 }
 
-// A subscription fetch for a name that cannot be served -- nonexistent,
-// disabled, or in a format that fails -- must always get the same generic
-// 400. If different failures answered differently, a prober could tell
-// which client names exist on the box without ever authenticating.
-func TestAntiProbingSubInvalidNameGeneric400(t *testing.T) {
+func TestSubscriptionRequiresTokenBeforeServingAnyFormat(t *testing.T) {
 	antiProbingDB(t)
 	antiProbingSeedClients(t)
-
 	engine, subPath := antiProbingSubEngine(t)
-	srv := httptest.NewServer(engine)
-	defer srv.Close()
 
 	bad := []string{
 		"no-such-client",
-		"no-such-client?format=json",
-		"no-such-client?format=clash",
-		"regression-off", // exists but disabled: must answer like a missing one
+		"no-such-client?token=real-test-token",
+		"regression-real",
+		"regression-real?token=",
+		"regression-real?token=wrong&format=json",
+		"regression-real?token=other-test-token&format=clash",
+		"regression-real?format=happ",
+		"regression-real?token=real-test-token&token=real-test-token",
+		"regression-off?token=disabled-test-token",
 	}
-	var wantBody string
-	for i, name := range bad {
-		status, _, body := antiProbingGet(t, srv.URL+subPath+name)
-		if status != http.StatusBadRequest {
-			t.Errorf("GET %q: status %d, want 400", name, status)
-		}
-		if i == 0 {
-			wantBody = string(body)
-			if wantBody != "Error!" {
-				t.Errorf("GET %q: body %q, want the generic %q", name, wantBody, "Error!")
+	for _, path := range bad {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			req := httptest.NewRequest(method, subPath+path, nil)
+			req.Header.Set("User-Agent", "SFA/1.11.0")
+			resp := httptest.NewRecorder()
+			engine.ServeHTTP(resp, req)
+			if resp.Code != http.StatusNotFound || resp.Body.Len() != 0 ||
+				resp.Header().Get("Subscription-Userinfo") != "" || resp.Header().Get("Cache-Control") != "no-store" {
+				t.Errorf("%s %q: got status %d, headers %v, body %q", method, path, resp.Code, resp.Header(), resp.Body.String())
 			}
-		} else if string(body) != wantBody {
-			t.Errorf("GET %q: body %q, want it indistinguishable from %q", name, body, wantBody)
 		}
 	}
 
-	// The HEAD variant of the same probe must fail the same way.
-	resp, err := http.Head(srv.URL + subPath + "no-such-client")
-	if err != nil {
+	for _, path := range []string{
+		"regression-real?token=real-test-token",
+		"%E7%94%A8%E6%88%B7%20%2B%2F%25?token=encoded-name-test-token",
+	} {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			resp := httptest.NewRecorder()
+			engine.ServeHTTP(resp, httptest.NewRequest(method, subPath+path, nil))
+			if resp.Code != http.StatusOK || resp.Header().Get("Subscription-Userinfo") == "" ||
+				resp.Header().Get("Cache-Control") != "no-store" {
+				t.Errorf("authorized %s %q: status %d, headers %v", method, path, resp.Code, resp.Header())
+			}
+		}
+	}
+}
+
+func TestSubscriptionWithCustomPathAndEncodedName(t *testing.T) {
+	antiProbingDB(t)
+	antiProbingSeedClients(t)
+	if err := (&service.SettingService{}).SetSubPath("/入口 列表/"); err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("HEAD missing client: status %d, want 400", resp.StatusCode)
-	}
-
-	// Control: the enabled client still serves, so the identical 400s
-	// above are the failure path, not a broken server.
-	status, _, _ := antiProbingGet(t, srv.URL+subPath+"regression-real")
-	if status != http.StatusOK {
-		t.Errorf("GET enabled client: status %d, want 200", status)
+	engine, _ := antiProbingSubEngine(t)
+	path := "/%E5%85%A5%E5%8F%A3%20%E5%88%97%E8%A1%A8/%E7%94%A8%E6%88%B7%20%2B%2F%25"
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		resp := httptest.NewRecorder()
+		engine.ServeHTTP(resp, httptest.NewRequest(method, path+"?token=encoded-name-test-token", nil))
+		if resp.Code != http.StatusOK || resp.Header().Get("Subscription-Userinfo") == "" {
+			t.Errorf("%s subscription at custom path: HTTP %d", method, resp.Code)
+		}
 	}
 }

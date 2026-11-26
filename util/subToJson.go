@@ -3,6 +3,7 @@ package util
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -24,6 +25,13 @@ const maxExternalBody = 8 << 20 // 8 MiB
 // client of the panel then connects to.
 var externalClient = &http.Client{
 	Timeout: 10 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		req.Header.Del("Referer")
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	},
 	Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 	},
@@ -32,10 +40,15 @@ var externalClient = &http.Client{
 func GetExternalLink(url string) string {
 	response, err := externalClient.Get(url)
 	if err != nil {
-		logger.Warning("sub: Error making HTTP request:", err)
+		// net/http errors can contain the complete URL, including a token.
+		logger.Warning("sub: external subscription request failed")
 		return ""
 	}
 	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		logger.Warning("sub: external subscription returned HTTP ", response.StatusCode)
+		return ""
+	}
 
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxExternalBody))
 	if err != nil {
@@ -43,7 +56,7 @@ func GetExternalLink(url string) string {
 		return ""
 	}
 	if len(body) == maxExternalBody {
-		logger.Warning("sub: external subscription exceeded ", maxExternalBody, " bytes, refusing: ", url)
+		logger.Warning("sub: external subscription exceeded ", maxExternalBody, " bytes")
 		return ""
 	}
 

@@ -52,6 +52,7 @@ func TestXHTTPSubscriptionHTTPPipeline(t *testing.T) {
 		{Name: "http-base64", Links: linksForURL(provider.URL + "/base64")},
 	}
 	for index := range clients {
+		clients[index].SubToken = "test-token-" + clients[index].Name
 		clients[index].Enable = true
 		clients[index].Remark = "HTTP smoke test"
 		clients[index].Config = json.RawMessage(`{}`)
@@ -65,7 +66,7 @@ func TestXHTTPSubscriptionHTTPPipeline(t *testing.T) {
 	NewSubHandler(engine.Group("/sub"))
 	request := func(t *testing.T, name, query, userAgent string) []byte {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodGet, "/sub/"+name+query, nil)
+		req := httptest.NewRequest(http.MethodGet, "/sub/"+name+"?token=test-token-"+name+strings.Replace(query, "?", "&", 1), nil)
 		req.Header.Set("User-Agent", userAgent)
 		response := httptest.NewRecorder()
 		engine.ServeHTTP(response, req)

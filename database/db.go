@@ -49,7 +49,11 @@ func OpenDB(dbPath string) error {
 	var gormLogger logger.Interface
 
 	if config.IsDebug() {
-		gormLogger = logger.Default
+		gormLogger = logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Config{
+			SlowThreshold:        200 * time.Millisecond,
+			LogLevel:             logger.Info,
+			ParameterizedQueries: true,
+		})
 	} else {
 		gormLogger = logger.Discard
 	}
@@ -69,13 +73,12 @@ func OpenDB(dbPath string) error {
 	// job) cannot wait on the lock upgrade and fail instantly with "database
 	// is locked" whenever another writer (stats job) is active (#1209).
 	dsn := dbPath + sep + "_busy_timeout=10000&_journal_mode=WAL&_cache_size=-200&_txlock=immediate"
-	var err error
-	db, err = gorm.Open(sqlite.Open(dsn), c)
+	opened, err := gorm.Open(sqlite.Open(dsn), c)
 	if err != nil {
 		return err
 	}
 
-	sqlDB, err := db.DB()
+	sqlDB, err := opened.DB()
 	if err != nil {
 		return err
 	}
@@ -89,21 +92,31 @@ func OpenDB(dbPath string) error {
 	// sidecars hold the same pages.
 	for _, p := range []string{dbPath, dbPath + "-wal", dbPath + "-shm"} {
 		if err := os.Chmod(p, 0o600); err != nil && !os.IsNotExist(err) {
+			_ = sqlDB.Close()
 			return err
 		}
 	}
 
 	if config.IsDebug() {
-		db = db.Debug()
+		opened = opened.Debug()
 	}
+	db = opened
 	return nil
 }
 
-func InitDB(dbPath string) error {
-	err := OpenDB(dbPath)
+func InitDB(dbPath string) (err error) {
+	err = OpenDB(dbPath)
 	if err != nil {
 		return err
 	}
+	opened := db
+	defer func() {
+		if err != nil {
+			if pool, poolErr := opened.DB(); poolErr == nil {
+				_ = pool.Close()
+			}
+		}
+	}()
 
 	// Default Outbounds
 	if !db.Migrator().HasTable(&model.Outbound{}) {
@@ -120,6 +133,9 @@ func InitDB(dbPath string) error {
 
 	err = db.AutoMigrate(schemaModels()...)
 	if err != nil {
+		return err
+	}
+	if err = backfillSubscriptionTokens(db); err != nil {
 		return err
 	}
 	err = initUser()

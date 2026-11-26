@@ -48,10 +48,10 @@ type JsonService struct {
 	LinkService
 }
 
-func (j *JsonService) GetJson(subId string, format string) (*string, []string, error) {
+func (j *JsonService) getJSON(client *model.Client) (*string, []string, error) {
 	var jsonConfig map[string]interface{}
 
-	client, inDatas, err := j.getData(subId)
+	inDatas, err := j.getInbounds(client)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -110,24 +110,15 @@ func nodeRemark(settings *service.SettingService, client *model.Client) string {
 	return client.Remark
 }
 
-func (j *JsonService) getData(subId string) (*model.Client, []*model.Inbound, error) {
+func (j *JsonService) getInbounds(client *model.Client) ([]*model.Inbound, error) {
 	db := database.GetDB()
-	client := &model.Client{}
-	err := db.Model(model.Client{}).Where("enable = true and name = ?", subId).First(client).Error
-	if err != nil {
-		return nil, nil, err
-	}
 	var clientInbounds []uint
-	err = json.Unmarshal(client.Inbounds, &clientInbounds)
-	if err != nil {
-		return nil, nil, err
+	if err := json.Unmarshal(client.Inbounds, &clientInbounds); err != nil {
+		return nil, err
 	}
 	var inbounds []*model.Inbound
-	err = db.Model(model.Inbound{}).Preload("Tls").Where("id in ? AND enable = ?", clientInbounds, true).Find(&inbounds).Error
-	if err != nil {
-		return nil, nil, err
-	}
-	return client, inbounds, nil
+	err := db.Preload("Tls").Where("id in ? AND enable = ?", clientInbounds, true).Find(&inbounds).Error
+	return inbounds, err
 }
 
 // applyDefaultHost gives a ws or httpupgrade outbound the Host its link carries.

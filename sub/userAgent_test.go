@@ -61,6 +61,7 @@ func TestSubscriptionFormatByUserAgent(t *testing.T) {
 	vless := "vless://00000000-0000-4000-8000-000000000001@192.0.2.2:443?type=tcp&encryption=none#VLESS"
 	client := model.Client{
 		Name:     "ua-test",
+		SubToken: "ua-test-token",
 		Enable:   true,
 		Config:   json.RawMessage(`{}`),
 		Inbounds: json.RawMessage(`[]`),
@@ -74,7 +75,7 @@ func TestSubscriptionFormatByUserAgent(t *testing.T) {
 	NewSubHandler(router.Group("/sub"))
 	get := func(t *testing.T, agent, query string) string {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodGet, "/sub/"+client.Name+query, nil)
+		req := httptest.NewRequest(http.MethodGet, "/sub/"+client.Name+"?token="+client.SubToken+strings.Replace(query, "?", "&", 1), nil)
 		req.Header.Set("User-Agent", agent)
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, req)

@@ -3,7 +3,6 @@ package sub
 import (
 	"encoding/base64"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"github.com/alireza0/s-ui/database"
@@ -12,9 +11,7 @@ import (
 
 // A disabled inbound is not listening, so its links must not be served. #1327
 func TestSubsSkipDisabledInbounds(t *testing.T) {
-	if err := database.InitDB(filepath.Join(t.TempDir(), "test.db")); err != nil {
-		t.Fatal(err)
-	}
+	antiProbingDB(t)
 	db := database.GetDB()
 	inbounds := []model.Inbound{{Type: "mixed", Tag: "on", Enable: true}, {Type: "mixed", Tag: "off", Enable: true}}
 	if err := db.Create(&inbounds).Error; err != nil {
@@ -37,7 +34,7 @@ func TestSubsSkipDisabledInbounds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, _, err := (&SubService{}).GetSubs("alice")
+	result, _, err := (&SubService{}).getSubs(&client, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +46,7 @@ func TestSubsSkipDisabledInbounds(t *testing.T) {
 		t.Fatalf("links = %q, want the enabled local link and the external one", decoded)
 	}
 
-	_, ins, err := (&JsonService{}).getData("alice")
+	ins, err := (&JsonService{}).getInbounds(&client)
 	if err != nil {
 		t.Fatal(err)
 	}

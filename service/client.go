@@ -99,13 +99,21 @@ func (s *ClientService) Save(tx *gorm.DB, act string, data json.RawMessage, host
 			// Preserve managed timestamps (immutable createdAt, stats-managed onlineAt)
 			s.preserveServerOwnedFields(tx, &client)
 		} else {
+			client.SubToken, err = common.NewSubscriptionToken()
+			if err != nil {
+				return nil, err
+			}
 			client.CreatedAt = time.Now().Unix()
 			err = json.Unmarshal(client.Inbounds, &inboundIds)
 			if err != nil {
 				return nil, err
 			}
 		}
-		err = tx.Save(&client).Error
+		if act == "edit" {
+			err = tx.Omit("SubToken").Save(&client).Error
+		} else {
+			err = tx.Create(&client).Error
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -120,6 +128,9 @@ func (s *ClientService) Save(tx *gorm.DB, act string, data json.RawMessage, host
 		// batch has to be checked against itself as well as against the table.
 		seen := make(map[string]bool, len(clients))
 		for _, client := range clients {
+			if client == nil {
+				return nil, common.NewError("invalid client")
+			}
 			if err = s.validateClientName(tx, client); err != nil {
 				return nil, err
 			}
@@ -128,6 +139,10 @@ func (s *ClientService) Save(tx *gorm.DB, act string, data json.RawMessage, host
 			}
 			seen[client.Name] = true
 			if err = setConfigIdentity(client); err != nil {
+				return nil, err
+			}
+			client.SubToken, err = common.NewSubscriptionToken()
+			if err != nil {
 				return nil, err
 			}
 			client.CreatedAt = now
@@ -141,7 +156,7 @@ func (s *ClientService) Save(tx *gorm.DB, act string, data json.RawMessage, host
 		if err != nil {
 			return nil, err
 		}
-		err = tx.Save(clients).Error
+		err = tx.Create(clients).Error
 		if err != nil {
 			return nil, err
 		}
@@ -153,6 +168,9 @@ func (s *ClientService) Save(tx *gorm.DB, act string, data json.RawMessage, host
 		}
 		seen := make(map[string]bool, len(clients))
 		for _, client := range clients {
+			if client == nil {
+				return nil, common.NewError("invalid client")
+			}
 			if err = s.validateClientName(tx, client); err != nil {
 				return nil, err
 			}
@@ -178,7 +196,7 @@ func (s *ClientService) Save(tx *gorm.DB, act string, data json.RawMessage, host
 				return nil, err
 			}
 		}
-		err = tx.Save(clients).Error
+		err = tx.Omit("SubToken").Save(clients).Error
 		if err != nil {
 			return nil, err
 		}
@@ -379,7 +397,7 @@ func (s *ClientService) UpdateClientsOnInboundAdd(tx *gorm.DB, initIds string, i
 		if err != nil {
 			return err
 		}
-		err = tx.Save(&client).Error
+		err = tx.Omit("SubToken").Save(&client).Error
 		if err != nil {
 			return err
 		}
@@ -426,7 +444,7 @@ func (s *ClientService) UpdateClientsOnInboundDelete(tx *gorm.DB, id uint, tag s
 		if err != nil {
 			return err
 		}
-		err = tx.Save(&client).Error
+		err = tx.Omit("SubToken").Save(&client).Error
 		if err != nil {
 			return err
 		}
@@ -472,7 +490,7 @@ func (s *ClientService) UpdateLinksByInboundChange(tx *gorm.DB, inbounds *[]mode
 			if err != nil {
 				return err
 			}
-			err = tx.Save(&client).Error
+			err = tx.Omit("SubToken").Save(&client).Error
 			if err != nil {
 				return err
 			}
@@ -621,7 +639,7 @@ func (s *ClientService) ResetClients(tx *gorm.DB, dt int64) ([]uint, error) {
 
 	// Save clients
 	if len(allClients) > 0 {
-		err = tx.Save(allClients).Error
+		err = tx.Omit("SubToken").Save(allClients).Error
 		if err != nil {
 			return nil, err
 		}

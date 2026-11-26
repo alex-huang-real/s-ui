@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -48,7 +49,16 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	engine := gin.Default()
+	engine := gin.New()
+	engine.UseEscapedPath = true
+	engine.UnescapePathValues = false
+	engine.RedirectTrailingSlash = false
+	engine.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipQueryString: true}))
+	// Gin's default panic log includes the request URL and its token.
+	engine.Use(gin.CustomRecoveryWithWriter(nil, func(c *gin.Context, _ any) {
+		logger.Error("panic serving subscription")
+		c.AbortWithStatus(http.StatusInternalServerError)
+	}))
 	engine.Use(gzip.Gzip(gzip.DefaultCompression))
 
 	customHeadersStr, err := s.SettingService.GetSubCustomHeaders()
@@ -78,7 +88,9 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		engine.Use(middleware.DomainValidator(subDomain))
 	}
 
-	g := engine.Group(subPath)
+	// Route the configured prefix and the incoming path in the same form.
+	// An escaped slash in a username must remain inside its URL segment.
+	g := engine.Group((&url.URL{Path: subPath}).EscapedPath())
 	NewSubHandler(g)
 
 	return engine, nil

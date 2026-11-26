@@ -31,6 +31,7 @@ type Client struct {
 	// duplicates renamed, and a name is the subscription ID, so renaming one
 	// breaks that user's link.
 	Name     string          `json:"name" form:"name" gorm:"index"`
+	SubToken string          `json:"-" gorm:"not null;default:''"`
 	Config   json.RawMessage `json:"config,omitempty" form:"config"`
 	Inbounds json.RawMessage `json:"inbounds" form:"inbounds"`
 	Links    json.RawMessage `json:"links,omitempty" form:"links"`
